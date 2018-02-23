@@ -9,6 +9,7 @@ use LWP::UserAgent;
 use MIME::Base64;
 use Digest::MD5;
 use Time::HiRes qw/usleep/;
+use JSON::XS;
 
 use Data::Dumper;
 
@@ -38,10 +39,12 @@ while(1) {
     elsif ($count_tmp == 5 or $count_tmp == 10) {
         add_str("22222222222=$N\n");
     }
-    get_diff($file_content_server->{hex});
+    get_diff($file_content_server->{version});
     usleep(2_000_000);
-    $count_tmp++;
-
+    if($count_tmp++ > 15) {
+        print Dumper($file_content_server);
+        last;
+    }
     #_print();
 }
 
@@ -58,25 +61,32 @@ sub add_str {
 }
 
 sub get_diff {
-    my $hex = shift;
+    my $version = shift;
     
-    my $response = $ua->get(BASE_URL . '/diff' . "?hex=$hex");
+    my $response = $ua->get(BASE_URL . '/diff' . "?version=$version");
 
     if ($response->is_success) {
-        my $diff = $response->decoded_content; 
+        my $res = JSON::XS::decode_json($response->decoded_content); 
 
-        if ($diff eq '') {
-            print "Theare aren't new strings\n";
+
+        my $status = $res->{status} // 'error';
+        my $data = $res->{data} // [];
+        if ($status eq 'ok') {
+            if (@$data) {
+                for my $change (@$data) {
+                    my $text = MIME::Base64::decode_base64($change->[1]);
+                    $file_content_server->{text} .= $text;
+                }
+                $file_content_server->{version} = $data->[-1][0];
+            }
+            else {
+                print "Theare aren't new strings\n";
+            }
         }
-        else {
-            print "DIFF: " . Dumper($diff);
-            print Dumper($file_content_server);
-            my $new_text = $file_content_server->{text} . $diff;
-            my $md5_hex = Digest::MD5::md5_hex($new_text);
-            $file_content_server = {
-                hex  => $md5_hex,
-                text => $new_text,
-            };
+        elsif ($status eq 'error') {
+           if ($res->{action} eq 'get_all_file') {
+                get_all_file();
+           } 
         }
     }
 }
@@ -88,7 +98,7 @@ sub get_all_file {
         my $file = $response->decoded_content; 
 
         $file_content_server = {
-            hex  => Digest::MD5::md5_hex($file),
+            version  => $response->header('lastversion'),
             text => $file,
         };
     }
