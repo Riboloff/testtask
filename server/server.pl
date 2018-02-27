@@ -28,8 +28,21 @@ my $spaces = new DR::Tarantool::Spaces({
             {name => 'diff', type => 'UTF8STR'},
         ],
         indexes => {}
-    }
+    },
 });
+=we
+    25 => {
+        name => 'clients',
+        default_type    => 'STR',
+        user    => 'guest',
+        fields => [
+            {name => 'id', type => 'NUM'},
+            {name => 'version', type => 'NUM'},
+            {name => 'comand', type => 'STR'},
+        ],
+        indexes => {}
+    }
+=cut
 
 my $tarantool = DR::Tarantool::MsgPack::SyncClient->connect(
     host    => '127.0.0.1',
@@ -49,50 +62,47 @@ my $s = AnyEvent::HTTP::Server->new(
             my $status  = 200;
             my $content = '';
             my $headers = { 'content-type' => 'text/json' };
+            print Dumper($path, $request->params);
             if ($path eq '/file') {
                 my %args = (
                     headers => {
                         LastVersion => Server::get_last_version($tarantool),
+                        IdClient => Server::create_id($tarantool),
                     },
                 );
                 $request->sendfile(200, FILE, %args);
                 return;
             }
+            elsif ($path eq '/version') {
+                $content = JSON::XS::encode_json(Server::get_version($tarantool, $request->params()));
+            }
             elsif ($path eq '/diff') {
-                my $version_client = $request->params()->{'version'};
-                $content = JSON::XS::encode_json(Server::get_diff($tarantool, $version_client));
+                $content = JSON::XS::encode_json(Server::get_diff($tarantool, $request->params()));
             }
             elsif ($path eq '/add') {
                 my $text_client = MIME::Base64::decode_base64($request->params()->{'text'});
 
-                Server::add_in_end_file($text_client);
-                #$file_content .= $text_client;
-                #my $hex = Digest::MD5::md5_hex($file_content);
+                my $hex = Server::add_in_end_file($text_client);
 
-                #push(@$file_version, {
-                #        hex  => $hex,
-                #        diff => $text_client,
-                #    }
-                #);
                 my $insert_data = $tarantool->insert(
                     'file', [
                         undef,
                         MIME::Base64::encode_base64($text_client),
+                        $hex,
                     ]
                 );
-                #my $new_version = $insert_data->iter->raw(0);
-                #$content = JSON::XS::encode_json({version => $new_version});
                 $content = '';
             }
+            print Dumper($content);
             $request->reply($status, $content, headers => $headers);
         }
 );
 $s->listen;
 
-for (1 .. CHILDREN) {
-   my $pid = fork();
-   die "fork error: $!" unless defined $pid;
-}
+#for (1 .. CHILDREN) {
+#   my $pid = fork();
+#   die "fork error: $!" unless defined $pid;
+#}
 
 $s->accept;
 my $sig = AE::signal INT => sub {

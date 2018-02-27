@@ -7,12 +7,12 @@ use utf8;
 use lib '/home/makcimgovorov/perl5/lib/perl5/';
 use Digest::MD5;
 use MIME::Base64;
+use Data::Dumper;
 
 sub get_last_version {
     my $tarantool = shift;
     my $file_version = get_tarantool_all_data($tarantool);
     
-    print Data::Dumper::Dumper($file_version);
     return $file_version->[0][0];
 }
 
@@ -20,7 +20,6 @@ sub get_tarantool_all_data {
     my $tarantool = shift;
 
     my $t = $tarantool->call_lua('box.space.file:select', [], 'file');
-    print Data::Dumper::Dumper($t);
     my $iter = $t->iter;
 
     my $all_data = [];
@@ -46,6 +45,7 @@ sub init {
         'file', [
             undef,
             MIME::Base64::encode_base64($text),
+            (split(' ', `md5sum ./file`))[0],
         ]
     );
 
@@ -54,18 +54,22 @@ sub init {
 
 sub get_diff {
     my $tarantool = shift;
-    my $ver_number_client = shift;
+    my $req_params = shift;
+
+    my $version_client = $req_params->{'version'};
+
+    my $col_num = 0;
 
     my $file_version = get_tarantool_all_data($tarantool);
 
     my $diff = [];
     my $last_element = $#$file_version;
-    if ($file_version->[0][0] eq $ver_number_client) {
+    if ($file_version->[0][0] eq $version_client) {
         #Клиент на послдней версии файла
-        return {'status' => 'ok', data => []};   
+        return {'status' => 'ok', data => [], 'hex' => $file_version->[0][2], 'version' => $file_version->[0][0]};   
     }
     for (my $i = 0; $i < @$file_version; $i++) {
-        if ($file_version->[$i][0] eq $ver_number_client) {
+        if ($file_version->[$i][0] eq $version_client) {
             $diff = [@$file_version[0 .. $i-1]];
             last;
         }
@@ -75,9 +79,39 @@ sub get_diff {
         return {status => 'error', 'action' => 'get_all_file'};
     }
 
-    return {status => 'ok', data => [reverse @$diff]};
+    return {
+        status => 'ok',
+        data => [reverse @$diff],
+    };
 }
 
+sub get_version {
+    my $tarantool = shift;
+    my $req_params = shift;
+
+    my $hex_file_client = $req_params->{'hex'};
+
+    my $file_version = get_tarantool_all_data($tarantool);
+
+    for my $v (@$file_version) {
+        my $hex = $v->[2];
+        my $version = $v->[0];
+        if ($hex eq $hex_file_client) {
+            return {
+                status => 'ok',
+                version => $version,
+                hex => $hex,
+            };
+        }
+    }
+        print Dumper($file_version);
+    return {status => 'error', 'action' => 'get_all_file'};
+}
+
+#TODO: flock
+#Tie::File;
+#use Fcntl;
+#tie @data. Tie::File. $FILENAME or die "Can't tie to Sfilename : $!\n";
 sub add_in_end_file {
     my $text_client = shift;
 
@@ -86,7 +120,14 @@ sub add_in_end_file {
     print $OUTF "$text_client";
     close($OUTF);
 
-    return;
+    my ($hex) = split(' ', `md5sum ./file`);
+    return $hex;
+}
+
+sub create_id {
+    my $tarantool = shift;
+
+    
 }
 
 1;
