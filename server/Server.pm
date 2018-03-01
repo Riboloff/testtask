@@ -12,8 +12,11 @@ use Data::Dumper;
 sub get_last_version {
     my $tarantool = shift;
     my $file_version = get_tarantool_all_data($tarantool);
-    
-    return $file_version->[0][0];
+
+    return {
+       version => $file_version->[0][0],
+       hex     => $file_version->[0][2],
+    };
 }
 
 sub get_tarantool_all_data {
@@ -41,6 +44,7 @@ sub init {
     close($INF);
 
     $tarantool->call_lua('box.space.file:truncate', [], 'file');
+    $tarantool->call_lua('box.space.clients:truncate', [], 'clients');
     $tarantool->insert(
         'file', [
             undef,
@@ -66,7 +70,7 @@ sub get_diff {
     my $last_element = $#$file_version;
     if ($file_version->[0][0] eq $version_client) {
         #Клиент на послдней версии файла
-        return {'status' => 'ok', data => [], 'hex' => $file_version->[0][2], 'version' => $file_version->[0][0]};   
+        return {'status' => 'ok', data => [], 'hex' => $file_version->[0][2], 'version' => $file_version->[0][0]};
     }
     for (my $i = 0; $i < @$file_version; $i++) {
         if ($file_version->[$i][0] eq $version_client) {
@@ -124,10 +128,69 @@ sub add_in_end_file {
     return $hex;
 }
 
-sub create_id {
+sub get_clientid {
     my $tarantool = shift;
 
-    
+    my $res = $tarantool->insert(
+        'clients', [
+            undef,
+            time,
+        ]
+    );
+    print Dumper($res->raw(0));
+    return $res->raw(0);
+}
+
+sub create_clientid {
+    my $tarantool = shift;
+
+    my $res = $tarantool->insert(
+        'clients', [
+            undef,
+            time,
+        ]
+    );
+    print Dumper($res->raw(0));
+    return $res->raw(0);
+}
+
+sub create_connect {
+    my $tarantool = shift;
+
+    return {
+        clientid => create_clientid($tarantool),
+        %{get_last_version($tarantool)},
+    };
+}
+
+sub logging_client {
+    my $tarantool = shift;
+    my $clientid = shift;
+    my $path = shift;
+
+    print "clientid = $clientid\n";
+    print "path = $path\n";
+
+    my $t = $tarantool->replace(
+        'clients', [
+            int $clientid,
+            time(),
+            $path,
+        ]
+    );
+}
+
+sub get_admin_info {
+    my $tarantool = shift;
+
+    my $t = $tarantool->call_lua('box.space.clients:select', [], 'clients');
+    my $iter = $t->iter;
+
+    my $all_data = [];
+    while (my $item = $iter->next) {
+        push(@$all_data, $item->raw());
+    }
+    return $all_data;
 }
 
 1;

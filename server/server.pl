@@ -24,25 +24,25 @@ my $spaces = new DR::Tarantool::Spaces({
         default_type    => 'STR',
         user    => 'guest',
         fields => [
-            {name => 'inc', type => 'NUM'},
+            {name => 'inc',  type => 'NUM'},
             {name => 'diff', type => 'UTF8STR'},
+            {name => 'hex',  type => 'STR'},
         ],
         indexes => {}
     },
-});
-=we
     25 => {
         name => 'clients',
         default_type    => 'STR',
         user    => 'guest',
         fields => [
             {name => 'id', type => 'NUM'},
+            {name => 'time', type => 'NUM'},
             {name => 'version', type => 'NUM'},
             {name => 'comand', type => 'STR'},
         ],
         indexes => {}
     }
-=cut
+});
 
 my $tarantool = DR::Tarantool::MsgPack::SyncClient->connect(
     host    => '127.0.0.1',
@@ -63,11 +63,22 @@ my $s = AnyEvent::HTTP::Server->new(
             my $content = '';
             my $headers = { 'content-type' => 'text/json' };
             print Dumper($path, $request->params);
+            if ($path eq '/admin') {
+                $content = JSON::XS::encode_json(Server::get_admin_info($tarantool));
+                $request->reply($status, $content, headers => $headers);
+                return;
+            }
+            my $clientid = $request->params()->{'clientid'};
+            if ($path eq '/connect') {
+                $content = JSON::XS::encode_json(Server::create_connect($tarantool));
+                $request->reply($status, $content, headers => $headers);
+                return;
+            }
+            Server::logging_client($tarantool, $clientid, $path);
             if ($path eq '/file') {
                 my %args = (
                     headers => {
-                        LastVersion => Server::get_last_version($tarantool),
-                        IdClient => Server::create_id($tarantool),
+                        %{ Server::get_last_version($tarantool) },
                     },
                 );
                 $request->sendfile(200, FILE, %args);
