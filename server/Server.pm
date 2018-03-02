@@ -7,6 +7,7 @@ use utf8;
 use lib '/home/makcimgovorov/perl5/lib/perl5/';
 use Digest::MD5;
 use MIME::Base64;
+use Fcntl qw(:flock);
 use Data::Dumper;
 
 sub get_last_version {
@@ -70,7 +71,8 @@ sub get_diff {
     my $last_element = $#$file_version;
     if ($file_version->[0][0] eq $version_client) {
         #Клиент на послдней версии файла
-        return {'status' => 'ok', data => [], 'hex' => $file_version->[0][2], 'version' => $file_version->[0][0]};
+        #return {'status' => 'ok', data => [], 'hex' => $file_version->[0][2], 'version' => $file_version->[0][0]};
+        return {'status' => 'ok', data => []};
     }
     for (my $i = 0; $i < @$file_version; $i++) {
         if ($file_version->[$i][0] eq $version_client) {
@@ -108,19 +110,15 @@ sub get_version {
             };
         }
     }
-        print Dumper($file_version);
+
     return {status => 'error', 'action' => 'get_all_file'};
 }
 
-#TODO: flock
-#Tie::File;
-#use Fcntl;
-#tie @data. Tie::File. $FILENAME or die "Can't tie to Sfilename : $!\n";
 sub add_in_end_file {
     my $text_client = shift;
 
     open(my $OUTF, '>>', 'file');
-
+    flock($OUTF, LOCK_EX);
     print $OUTF "$text_client";
     close($OUTF);
 
@@ -137,7 +135,6 @@ sub get_clientid {
             time,
         ]
     );
-    print Dumper($res->raw(0));
     return $res->raw(0);
 }
 
@@ -150,7 +147,6 @@ sub create_clientid {
             time,
         ]
     );
-    print Dumper($res->raw(0));
     return $res->raw(0);
 }
 
@@ -167,9 +163,6 @@ sub logging_client {
     my $tarantool = shift;
     my $clientid = shift;
     my $path = shift;
-
-    print "clientid = $clientid\n";
-    print "path = $path\n";
 
     my $t = $tarantool->replace(
         'clients', [
@@ -190,7 +183,29 @@ sub get_admin_info {
     while (my $item = $iter->next) {
         push(@$all_data, $item->raw());
     }
-    return $all_data;
+
+    return delete_old_client_info($tarantool, $all_data);
+}
+
+sub delete_old_client_info {
+    my $tarantool = shift;
+    my $data = shift;
+
+    my $new_client = [];
+    my $time = time();
+    for my $row (@$data) {
+        next unless @$row;
+        my ($id, $ts) = @$row[0,1];
+
+        if (($time - $ts) > 10) {
+            $tarantool->call_lua('box.space.clients:delete', [$id], 'clients');
+        }
+        else {
+            push(@$new_client, $row);
+        }
+    }
+
+    return $new_client;
 }
 
 1;
