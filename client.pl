@@ -18,11 +18,14 @@ use Data::Dumper;
 use constant {
     FILE => 'file',
     BASE_URL => 'http://127.0.0.1:8080',
+    ENTER_KEY => 10,
 };
 
 my $N = $ARGV[0] // 0;
 my $path_to_file = './data/' . $N;
 
+my $input_line = "";
+$SIG{INT} = sub {ReadMode('normal'); clear_console(); exit(0)};
 
 my $ua = LWP::UserAgent->new();
 $ua->timeout(1);
@@ -30,7 +33,7 @@ $ua->timeout(1);
 $| = 1;
 my ($wchar, $hchar) = GetTerminalSize();
 my $console = Term::ANSIScreen->new;
-if ($N == 24) {
+if ($N eq 'admin') {
     admin_mode_loop();
 }
 
@@ -83,19 +86,11 @@ sub init {
 sub main_loop {
     my $count_tmp = 0;
     while(1) {
-        if ($N != 2 and ($count_tmp == 3 or $count_tmp == 7)) {
-            add_str("iddqd=$N\n");
-        }
-        elsif ($N != 2 and ($count_tmp == 5 or $count_tmp == 10)) {
-            add_str("idkfa=$N\n");
-        } else {
-            get_diff();
-        }
-        usleep(1_000_000);
-        last if ($count_tmp++ > 15);
+        get_diff();
+        _print(join("\n", @{$file_content_server->{text_array}}));
+        usleep(200_000);
     }
 }
-
 
 sub add_str {
     my $str = shift;
@@ -105,11 +100,9 @@ sub add_str {
 
     my $url = BASE_URL . '/add' . "?text=$base64&clientid=$clientid";
     my $response = http_get($url);
-    print "String $str sended.\n";
 }
 
 sub get_diff {
-    print "get_diff\n";
     my ($version, $clientid) = @$file_content_server{qw(version clientid)};
     my @get_params = (
         "version=$version",
@@ -130,20 +123,15 @@ sub get_diff {
             }
             $file_content_server->{version} = $data->[-1][0];
         }
-        else {
-            print "Theare aren't new strings\n";
-        }
     }
     elsif ($status eq 'error') {
        if ($res->{action} eq 'get_all_file') {
-            print "error, need get_all_file\n";
-            get_all_file();
+            get_all_file($clientid);
        }
     }
 }
 
 sub get_version {
-    print "get_version\n";
     my $hex = shift;
     my $clientid = shift;
 
@@ -214,7 +202,7 @@ sub admin_mode_loop {
 
 sub clear_console {
     $console->Cursor(0, 0);
-	for (my $y = 0; $y <= $hchar; $y++) {
+	for (my $y = 0; $y < $hchar - 1; $y++) {
 		print " " x $wchar;
 	}
 }
@@ -235,7 +223,20 @@ sub _print {
 	clear_console();
     $console->Cursor(0, 0);
 
+    ReadMode ('cbreak');
     print Dumper($data);
+    if (defined (my $char = ReadKey(-1) )) {
+        if (ord $char eq ENTER_KEY) {
+            add_str($input_line . "\n");
+            $input_line = "";
+            $console->Cursor(0, $hchar);
+            print " " x $wchar;            
+        } else {
+            $console->Cursor(0, $hchar);
+            $input_line .= $char;
+            print $input_line;
+        }
+    }
 }
 
 sub http_get {
