@@ -195,7 +195,7 @@ sub admin_mode_loop {
 
     while(1) {
         _print(admin_connect());
-        
+
         usleep(500_000);
     }
 }
@@ -223,14 +223,17 @@ sub _print {
 	clear_console();
     $console->Cursor(0, 0);
 
-    ReadMode ('cbreak');
     print Dumper($data);
+    if ($N eq 'admin') {
+        return;
+    }
+    ReadMode ('cbreak');
     if (defined (my $char = ReadKey(-1) )) {
         if (ord $char eq ENTER_KEY) {
             add_str($input_line . "\n");
             $input_line = "";
             $console->Cursor(0, $hchar);
-            print " " x $wchar;            
+            print " " x $wchar;
         } else {
             $console->Cursor(0, $hchar);
             $input_line .= $char;
